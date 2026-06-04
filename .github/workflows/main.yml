@@ -1,0 +1,63 @@
+name: Surveillance et Réveil Multi-Comptes (2 Tokens)
+
+on:
+  workflow_dispatch: # Pour lancer manuellement si besoin
+  schedule:
+    # S'exécute toutes les 30 minutes
+    - cron: '*/30 * * * *'
+
+jobs:
+  check-and-wakeup-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Boucle sur les  comptes GitHub
+        env:
+          # On passe les 2 secrets à l'environnement du script
+          T1: ${{ secrets.TOKEN_1 }}
+          T2: ${{ secrets.TOKEN_2 }}
+        run: |
+          # Création d'une liste contenant tous les tokens configurés
+          TOKENS=("$T1" "$T2")
+          
+          COMPTE_NUM=1
+
+          for CURRENT_TOKEN in "${TOKENS[@]}"; do
+            echo "--------------------------------------------------"
+            echo "Analyse du Compte N°$COMPTE_NUM..."
+
+            # Vérifier si le token n'est pas vide (au cas où vous en utiliseriez moins de 10 au début)
+            if [ -z "$CURRENT_TOKEN" ] || [ "$CURRENT_TOKEN" = "null" ]; then
+              echo "Token N°$COMPTE_NUM non configuré ou vide. Passage au suivant."
+              COMPTE_NUM=$((COMPTE_NUM + 1))
+              continue
+            fi
+
+            # Définir le token actif pour la CLI 'gh'
+            export GH_TOKEN="$CURRENT_TOKEN"
+
+            # Récupérer les informations du premier codespace du compte
+            INFO=$(gh codespace list --json name,state --jq '.[0]' 2>/dev/null)
+
+            if [ -z "$INFO" ] || [ "$INFO" = "null" ]; then
+              echo "Aucun Codespace trouvé sur le compte N°$COMPTE_NUM."
+            else
+              NAME=$(echo "$INFO" | jq -r '.name')
+              STATE=$(echo "$INFO" | jq -r '.state')
+
+              echo "Codespace détecté : $NAME (État actuel : $STATE)"
+
+              # Si le codespace est arrêté, on le réveille
+              if [ "$STATE" = "Shutdown" ]; then
+                echo "-> Statut 'Shutdown' détecté. Envoi de l'ordre de réveil..."
+                gh codespace ssh -c "$NAME" -- true 2>/dev/null
+                echo "-> Ordre de réveil envoyé avec succès !"
+              else
+                echo "-> Le Codespace est déjà actif ($STATE). Pas besoin de le réveiller."
+              fi
+            fi
+
+            # Passer au compte suivant
+            COMPTE_NUM=$((COMPTE_NUM + 1))
+          done
+          echo "--------------------------------------------------"
+          echo "Vérification terminée pour tous les comptes !"
